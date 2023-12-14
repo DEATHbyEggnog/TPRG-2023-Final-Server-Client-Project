@@ -25,6 +25,9 @@ class MovableWindow(tk.Tk):
         self._offsetx = 0
         self._offsety = 0
 
+        # Initialize iteration count as a class variable
+        MovableWindow.iteration_count = 0
+
         # Function to create a label with a border
         def create_bordered_label(parent, text, bold=False):
             label_frame = tk.Frame(parent, bg="grey", bd=2, relief="solid")
@@ -35,29 +38,35 @@ class MovableWindow(tk.Tk):
             label.pack(padx=5, pady=5)
 
         # Create a big bold label for "RASPBERRY PI"
-        self.title_label = Label(self.frame, text="RASPBERRY PI (Iteration: 0)", font=("Helvetica", 16, "bold"), bg="grey", fg="white")
-        self.title_label.grid(row=0, column=0, columnspan=4, pady=(0, 10))
+        title_label = Label(self.frame, text="RASPBERRY PI", font=("Helvetica", 16, "bold"), bg="grey", fg="white")
+        title_label.grid(row=0, column=0, columnspan=4, pady=(0, 10))
 
         # Create labels to display data
         create_bordered_label(self.frame, "Core Temperature:", bold=True)
         create_bordered_label(self.frame, "Display Power:", bold=True)
         create_bordered_label(self.frame, "Clock Frequency:", bold=True)
         create_bordered_label(self.frame, "DRAM Voltage:", bold=True)
-
+        create_bordered_label(self.frame, "Disk Usage:", bold=True)  # Added Extra Data label
+        
         # Create a canvas for the INFO UPDATE LED
         self.info_update_led_canvas = Canvas(self.frame, width=100, height=100, bg="grey", bd=0, highlightthickness=0)
-        self.info_update_led_canvas.grid(row=1, column=2, rowspan=4, padx=(20, 0))
+        self.info_update_led_canvas.grid(row=1, column=2, rowspan=6, padx=(20, 0))
 
         # Create an Exit button (bolded)
         exit_button = Button(self.frame, text="Exit", command=self.destroy, font=("Helvetica", 12, "bold"))
-        exit_button.grid(row=6, column=0, columnspan=4, pady=(10, 0))
+        exit_button.grid(row=8, column=0, columnspan=4, pady=(10, 0))
+
+        # Create a label to display iteration count
+        self.iteration_label = self.create_data_label("Iteration: 0", row=9, column=0, columnspan=4, pady=(10, 0))
 
         # Sample data for initial update
         sample_data = {
-            "Core Temperature:": "30.0",
-            "Display Power:": "1",
-            "Clock Frequency:": "1000000",
-            "DRAM Voltage:": "1.2",
+            "Temperature": "30.0",
+            "DisplayPower": "1",
+            "MeasureClock": "1000000",
+            "MeasureVolts": "1.2",
+            "DiskUsage": "42.0",  # Added the fifth Pi data
+           
         }
 
         # Update labels and LEDs with sample data
@@ -65,14 +74,41 @@ class MovableWindow(tk.Tk):
         self.update_info_update_led_color("red")  # Set initial color to red
 
         # Initialize iteration count
-        self.iteration_count = 0
+        MovableWindow.iteration_count = 0
+
+    def create_data_label(self, text, row, column, columnspan, pady):
+        # Function to create a label for data display
+        label_frame = tk.Frame(self.frame, bg="grey", bd=2, relief="solid")
+        label_frame.grid(row=row, column=column, columnspan=columnspan, pady=pady, sticky="w")
+
+        label = Label(label_frame, text=text, bg="grey", fg="white", bd=0, font=("Helvetica", 12))
+        label.pack(padx=5, pady=5)
+
+        return label
 
     def update_labels(self, data_dict):
+        
         # Function to update labels with sample data
-        for i, (label_text, value) in enumerate(data_dict.items(), start=1):
-            label = self.frame.winfo_children()[i].winfo_children()[0]
-            label.config(text="{} {}".format(label_text, value))
+        temperature_label = self.frame.winfo_children()[1].winfo_children()[0]
+        temperature_label.config(text="Core Temperature: {} C".format(data_dict["Temperature"]))
 
+        display_power_label = self.frame.winfo_children()[2].winfo_children()[0]
+        display_power_label.config(text="Display Power: {}".format(data_dict["DisplayPower"]))
+
+        clock_frequency_label = self.frame.winfo_children()[3].winfo_children()[0]
+        clock_frequency_label.config(text="Clock Frequency: {} Hz".format(data_dict["MeasureClock"]))
+
+        dram_voltage_label = self.frame.winfo_children()[4].winfo_children()[0]
+        dram_voltage_label.config(text="DRAM Voltage: {} V".format(data_dict["MeasureVolts"]))
+
+        # Update the iteration count label
+        self.iteration_label.config(text="Iteration: {}".format(MovableWindow.iteration_count))
+
+        # Display the new Pi data
+        disk_usage = self.frame.winfo_children()[5].winfo_children()[0]
+        disk_usage.config(text="Disk Usage: {}".format(data_dict["DiskUsage"]))
+
+      
     def blink_info_update_led(self):
         # Blink the info update LED
         self.info_update_led_canvas.delete("all")
@@ -85,8 +121,10 @@ class MovableWindow(tk.Tk):
         self.draw_gradient_circle(self.info_update_led_canvas, 50, 50, 35, color)
 
     def draw_gradient_circle(self, canvas, x, y, radius, color):
-        # Function to draw a filled circle with the specified color
-        canvas.create_oval(x - radius, y - radius, x + radius, y + radius, fill=color, outline="")
+        # Function to draw a gradient-filled circle
+        for i in range(radius, 0, -1):
+            intensity = int(255 * (1 - i / radius))
+            canvas.create_oval(x - i, y - i, x + i, y + i, fill="#%02x%02x%02x" % (intensity, 0, 0), outline="")
 
     def drag_window(self, event):
         # Function to drag the window
@@ -98,7 +136,7 @@ class MovableWindow(tk.Tk):
         # Function to close the window
         self.destroy()
 
-def server_thread():
+def server_thread(app):
     s = socket.socket()
     host = '10.102.13.55'  # Listen on all available interfaces
     port = 5000
@@ -114,12 +152,16 @@ def server_thread():
         measure_clock = os.popen('vcgencmd measure_clock arm').readline().strip()
         # Measure sdram voltage
         measure_volts = os.popen('vcgencmd measure_volts sdram_c').readline().strip()
-
+        # Extra Pi data (replace with actual commands)
+        disk_usage_data = os.popen('df -h / | awk \'NR==2{printf "%s", $5}\'').readline().strip()
+       
         return {
-            "Core Temperature:": measure_temp,
-            "Display Power:": display_power,
-            "Clock Frequency:": measure_clock,
-            "DRAM Voltage:": measure_volts
+            "Temperature": measure_temp,
+            "DisplayPower": display_power,
+            "MeasureClock": measure_clock,
+            "MeasureVolts": measure_volts,
+            "DiskUsage": disk_usage_data,
+           
         }
 
     # Accept connections
@@ -129,7 +171,7 @@ def server_thread():
 
         # Continuously send updated information every 2 seconds
         try:
-            while app.iteration_count < 50:
+            while True:
                 data_dict = get_pi_data()
 
                 # Convert dictionary to JSON-formatted string
@@ -138,32 +180,29 @@ def server_thread():
                 # Update labels and LEDs with data
                 app.update_labels(data_dict)
 
-                # Increment iteration count
-                app.iteration_count += 1
-
-                # Update title label with iteration count
-                app.title_label.config(text="RASPBERRY PI (Iteration: {})".format(app.iteration_count))
-
                 # Send the JSON string as bytes
                 c.send(json_string.encode('utf-8'))
 
                 # Flash the INFO UPDATE LED (red)
                 app.blink_info_update_led()
+
+                # Increment iteration count
+                MovableWindow.iteration_count += 1
+
+                # Check if 50 iterations reached and exit
+                if MovableWindow.iteration_count >= 50:
+                    app.destroy()
+
                 time.sleep(1.5)  # Total delay of 2 seconds
 
-                # Schedule the application to be destroyed after 5 seconds
-                app.after(5000, app.destroy)
         except (ConnectionResetError, BrokenPipeError):
             print('Connection closed by client')
             c.close()
 
 if __name__ == "__main__":
-    # Create GUI window
     app = MovableWindow()
-
-    # Create and start the server thread
-    server_thread = threading.Thread(target=server_thread)
+    server_thread = threading.Thread(target=server_thread, args=(app,))
     server_thread.start()
-
-    # Start the GUI event loop
     app.mainloop()
+
+
